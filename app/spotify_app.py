@@ -168,9 +168,7 @@ class SpotifyApp:
                 raise ValueError("DataFrame must contain an 'id' column with track IDs.")
             track_ids = tracks['id'].tolist()
             return self.__get_audio_features_by_ids(track_ids)
-
-        else:
-            raise TypeError("tracks must be either a path to a JSON file or a DataFrame of tracks.")
+        raise TypeError("tracks must be either a path to a JSON file or a DataFrame of tracks.")
 
     def get_audio_features_mean(self, dataframe: pd.DataFrame) -> np.ndarray:
         """Calculate the mean of the audio features array."""

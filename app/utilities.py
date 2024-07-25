@@ -1,5 +1,4 @@
-from typing import List, Type, TypeVar, Union, Dict, Any
-
+"""Utilities for spotify app."""
 import numpy as np
 
 from typing import List, Type, TypeVar

@@ -1,7 +1,8 @@
+"""Spotify App."""
 import json
 import os
 
-from typing import Any, Union, List
+from typing import Union
 
 import numpy as np
 import pandas as pd
@@ -11,8 +12,13 @@ from spotipy.oauth2 import SpotifyOAuth, SpotifyClientCredentials
 
 from app.utilities import Tracks, Features, convert_to_numpy_array
 
+pd.set_option('display.max_rows', None)
+pd.set_option('display.max_columns', None)
+pd.set_option('display.width', None)
+
 
 class SpotifyApp:
+    """SpotifyApp class handling the Spotify API."""
 
     def __init__(self):
         load_dotenv('.env')  # Load the environment variables from the .env file
@@ -30,12 +36,14 @@ class SpotifyApp:
             redirect_uri="https://ca2f-89-135-32-37.ngrok-free.app"))
 
     def __initialize_client_connection(self) -> spotipy.Spotify:
+        """Initialize the Spotify client connection."""
         client_credentials_manager = SpotifyClientCredentials(
             client_id=self.__client_id, client_secret=self.__client_secret)
 
         return spotipy.Spotify(client_credentials_manager=client_credentials_manager)
 
     def get_user_playlist(self) -> list[Tracks]:
+        """Get the user's playlist."""
         results = self.__user_conn.current_user_saved_tracks()
         tracks = results['items']
         while results['next']:
@@ -69,11 +77,18 @@ class SpotifyApp:
         track_df = Tracks.get_dataframe(tracks)
         track_df = track_df.drop_duplicates(subset='uri')
 
-        # Convert the DataFrame back to a list of track objects
         unique_tracks = Tracks.from_dict_list(track_df.to_dict('records'))
         return unique_tracks
 
     def __get_genres_by_artists(self, tracklist: list[Tracks]) -> pd.DataFrame:
+        """Get genres by artists.
+
+        Args:
+            tracklist: list of tracks.
+
+        Returns: a dataframe with genres per artist.
+
+        """
         artists = {artist['name'].strip().lower() for track in tracklist for artist in track.artists}
         df_dict = {}
 
@@ -94,6 +109,14 @@ class SpotifyApp:
         return df.groupby('artist').agg({'genre': lambda x: list(x)}).reset_index()
 
     def update_tracks_with_genres(self, tracklist: list[Tracks]) -> pd.DataFrame:
+        """Update tracks with genres.
+
+        Args:
+            tracklist: list of tracks.
+
+        Returns: a dataframe with tracks with genres.
+
+        """
         tracklist_df = Tracks.get_dataframe(tracklist)
         genre_df = self.__get_genres_by_artists(tracklist)
 
@@ -115,7 +138,14 @@ class SpotifyApp:
         return df_grouped
 
     def __get_audio_features_by_ids(self, track_ids: list[str]) -> pd.DataFrame:
-        """Helper function to get audio features by track IDs in batches."""
+        """Helper function to get audio features by track IDs in batches.
+
+        Args:
+            track_ids: list of track IDs.
+
+        Returns: a dataframe with audio features.
+
+        """
         audio_features = []
         for i in range(0, len(track_ids), 100):
             batch_ids = track_ids[i:i + 100]
@@ -129,7 +159,7 @@ class SpotifyApp:
         Args:
             tracks: Provide either a list of tracks, a path to a json file containing tracks, or a DataFrame of tracks.
 
-        Returns: list of audio features.
+        Returns: a dataframe with audio features.
 
         """
         if isinstance(tracks, str):
@@ -145,12 +175,21 @@ class SpotifyApp:
         return self.__get_audio_features_by_ids(track_ids)
 
     def get_similar_results(self,
-                            track_list: list[Tracks],
                             genre_filter: str,
                             limit: int = 50,
                             market: str = 'US') -> pd.DataFrame:
+        """Get similar tracks using Spotify API.
 
-        track_df = self.update_tracks_with_genres(track_list)
+        Args:
+            genre_filter: specify the genre for which you want the function to find similar tracks.
+            limit: offset. Defaults to the maximum: 50.
+            market: market of the search conditions. Defaults to 'US'.
+
+        Returns: a dataframe with the 5 most similar tracks.
+
+        """
+        favorite_tracks = spotify_app.get_user_playlist()
+        track_df = self.update_tracks_with_genres(favorite_tracks)
         # Filter dataframe by genre
         filtered_df = track_df[
             track_df['genre'].apply(lambda genres: any(genre_filter.lower() in genre.lower() for genre in genres))]
@@ -184,19 +223,11 @@ class SpotifyApp:
         # Get the indices of the 5 tracks with the smallest distances
         closest_indices = np.argsort(distances)[:5]
 
-        # Return the corresponding tracks
         results = queried_tracks_df.iloc[closest_indices]
         return results[['name', 'artists', 'album', 'explicit', 'uri']].rename(columns={'name': 'name.alias(song)'})
 
 
-
-SP = SpotifyApp()
-
-pd.set_option('display.max_rows', None)  # Show all rows
-pd.set_option('display.max_columns', None)  # Show all columns
-pd.set_option('display.width', None)
-
-favorite_tracks = SP.get_user_playlist()
-
-favorite_results = SP.get_similar_results(favorite_tracks, "rock")
-print(favorite_results)
+if __name__ == '__main__':
+    spotify_app = SpotifyApp()
+    favorite_results = spotify_app.get_similar_results("rock")
+    print(favorite_results)

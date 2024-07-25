@@ -21,3 +21,7 @@ jobs:
     - name: Analysing the code with pylint
       run: |
         pylint $(git ls-files '*.py')
+    - name: Running unit tests
+      run: |
+        python -m unittest discover -s tests -p "test_spotify_app.py"
+

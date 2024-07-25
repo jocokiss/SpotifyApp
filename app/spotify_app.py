@@ -10,10 +10,10 @@ import spotipy
 from dotenv import load_dotenv
 from spotipy.oauth2 import SpotifyOAuth, SpotifyClientCredentials
 
-from app.utilities import Tracks, Features, convert_to_numpy_array
+from utilities import Tracks, Features, convert_to_numpy_array
 
 pd.set_option('display.max_rows', None)
-pd.set_option('display.max_columns', None)
+# pd.set_option('display.max_columns', None)
 pd.set_option('display.width', None)
 
 
@@ -42,16 +42,17 @@ class SpotifyApp:
 
         return spotipy.Spotify(client_credentials_manager=client_credentials_manager)
 
-    def get_user_playlist(self) -> list[Tracks]:
+    def get_user_playlist(self, genres: bool = False) -> pd.DataFrame:
         """Get the user's playlist."""
         results = self.__user_conn.current_user_saved_tracks()
         tracks = results['items']
         while results['next']:
             results = self.__user_conn.next(results)
             tracks.extend(results["items"])
-        return [Tracks(**track['track']) for track in tracks]
+        result_df = Tracks.get_dataframe([Tracks(**track['track']) for track in tracks])
+        return self.update_tracks_with_genres(result_df) if genres else result_df
 
-    def search_tracks(self, query: str, limit: int = 50, market: str = 'US') -> list[Tracks]:
+    def search_tracks(self, query: str, limit: int = 50, market: str = 'US') -> pd.DataFrame:
         """Search tracks using Spotify API.
 
         Args:
@@ -59,80 +60,73 @@ class SpotifyApp:
             limit: offset. Defaults to the maximum: 50.
             market: the market of the search conditions. Defaults to 'US'.
 
-        Returns: a list of tracks found.
+        Returns: a dataframe of unique tracks found.
 
         """
         results = self.__client_conn.search(q=query, type="track", limit=limit, market=market)
-        tracks = Tracks.from_dict_list(results['tracks']['items'])
+        raw_tracks = results['tracks']['items']
 
-        while results['tracks']['next'] and len(tracks) < 200:
+        while results['tracks']['next'] and len(raw_tracks) < 200:
             results = self.__client_conn.next(results['tracks'])
             search_results = results["tracks"]["items"]
 
             if not search_results:
                 print("No additional tracks found in this page.")
                 break
-            tracks.extend(Tracks.from_dict_list(search_results))
+            raw_tracks.extend(search_results)
 
-        track_df = Tracks.get_dataframe(tracks)
-        track_df = track_df.drop_duplicates(subset='uri')
+        track_df = Tracks.get_dataframe([Tracks(**track) for track in raw_tracks])
+        return track_df.drop_duplicates(subset='id')
 
-        unique_tracks = Tracks.from_dict_list(track_df.to_dict('records'))
-        return unique_tracks
-
-    def __get_genres_by_artists(self, tracklist: list[Tracks]) -> pd.DataFrame:
+    def __get_genres_by_artists(self, dataframe: pd.DataFrame) -> pd.DataFrame:
         """Get genres by artists.
 
         Args:
-            tracklist: list of tracks.
+            dataframe: DataFrame of tracks.
 
-        Returns: a dataframe with genres per artist.
+        Returns: a DataFrame with genres per artist.
 
         """
-        artists = {artist['name'].strip().lower() for track in tracklist for artist in track.artists}
+        artists = {artist.strip().lower() for artist_list in dataframe['artists'] for artist in artist_list}
         df_dict = {}
 
         for artist in artists:
             query = f"artist:{artist}"
-            try:
-                search_results = self.__client_conn.search(q=query, type="artist", limit=50)["artists"]["items"]
-                for result in search_results:
-                    if result['name'].strip().lower() == artist:
-                        df_dict[artist] = result["genres"]
-                        break
-            except Exception as e:
-                print(f"Error fetching genres for artist {artist}: {e}")
-                df_dict[artist] = []
-
+            search_results = self.__client_conn.search(q=query, type="artist", limit=50)["artists"]["items"]
+            for result in search_results:
+                if result['name'].strip().lower() == artist:
+                    df_dict[artist] = result["genres"]
+                    break
         normalized_data = [(artist, genre) for artist, genres in df_dict.items() for genre in genres]
         df = pd.DataFrame(normalized_data, columns=['artist', 'genre'])
-        return df.groupby('artist').agg({'genre': lambda x: list(x)}).reset_index()
+        return df.groupby('artist').agg({'genre': list}).reset_index()
 
-    def update_tracks_with_genres(self, tracklist: list[Tracks]) -> pd.DataFrame:
+    def update_tracks_with_genres(self, dataframe: pd.DataFrame) -> pd.DataFrame:
         """Update tracks with genres.
 
         Args:
-            tracklist: list of tracks.
+            dataframe: DataFrame of tracks.
 
-        Returns: a dataframe with tracks with genres.
+        Returns: a DataFrame with tracks with genres.
 
         """
-        tracklist_df = Tracks.get_dataframe(tracklist)
-        genre_df = self.__get_genres_by_artists(tracklist)
+        genre_df = self.__get_genres_by_artists(dataframe)
 
-        tracklist_df['artists'] = tracklist_df['artists'].apply(lambda x: [artist.strip().lower() for artist in x])
-        tracklist_exploded = tracklist_df.explode('artists')
-
+        # Normalize artist names in tracks DataFrame
+        dataframe['artists'] = dataframe['artists'].apply(lambda x: [artist.strip().lower() for artist in x])
+        tracklist_exploded = dataframe.explode('artists')
+        # Merge tracklist with genres DataFrame
         df_tracks_merged = pd.merge(tracklist_exploded, genre_df, left_on='artists', right_on='artist', how='left')
         df_tracks_merged['genre'] = df_tracks_merged['genre'].apply(lambda x: x if isinstance(x, list) else [])
 
+        # Group by track and aggregate genres
         df_grouped = df_tracks_merged.groupby(['name', 'uri']).agg({
             'album': 'first',
             'explicit': 'first',
             'popularity': 'first',
             'id': 'first',
             'artists': lambda x: list(set(x)),
-            'genre': lambda x: list(set([genre for sublist in x for genre in sublist]))
+            'genre': lambda x: list({genre for sublist in x for genre in sublist if genre})
         }).reset_index(drop=False)
 
         return df_grouped
@@ -153,26 +147,36 @@ class SpotifyApp:
             audio_features.extend(batch_features)
         return Features.get_dataframe(Features.from_dict_list(audio_features))
 
-    def get_audio_features(self, tracks: Union[list[Tracks], str, pd.DataFrame]) -> pd.DataFrame:
+    def get_audio_features(self, tracks: Union[str, pd.DataFrame]) -> pd.DataFrame:
         """Get audio features from tracks.
 
         Args:
-            tracks: Provide either a list of tracks, a path to a json file containing tracks, or a DataFrame of tracks.
+            tracks: Provide either a path to a JSON file containing tracks or a DataFrame of tracks.
 
         Returns: a dataframe with audio features.
 
         """
         if isinstance(tracks, str):
-            with open(tracks, "r") as f:
+            # Handling if tracks is a path to a JSON file
+            with open(tracks, "r", encoding="utf-8") as f:
                 audio_features = json.load(f)
             return Features.get_dataframe(Features.from_dict_list(audio_features))
 
         if isinstance(tracks, pd.DataFrame):
+            # Handling if tracks is a DataFrame
+            if 'id' not in tracks.columns:
+                raise ValueError("DataFrame must contain an 'id' column with track IDs.")
             track_ids = tracks['id'].tolist()
-        else:
-            track_ids = [track.id for track in tracks]
+            return self.__get_audio_features_by_ids(track_ids)
 
-        return self.__get_audio_features_by_ids(track_ids)
+        else:
+            raise TypeError("tracks must be either a path to a JSON file or a DataFrame of tracks.")
+
+    def get_audio_features_mean(self, dataframe: pd.DataFrame) -> np.ndarray:
+        """Calculate the mean of the audio features array."""
+        filtered_df_af = self.get_audio_features(dataframe)
+        filtered_af_array = convert_to_numpy_array(filtered_df_af)
+        return np.mean(filtered_af_array, axis=0)
 
     def get_similar_results(self,
                             genre_filter: str,
@@ -188,39 +192,33 @@ class SpotifyApp:
         Returns: a dataframe with the 5 most similar tracks.
 
         """
-        favorite_tracks = spotify_app.get_user_playlist()
-        track_df = self.update_tracks_with_genres(favorite_tracks)
+        favorite_tracks = self.get_user_playlist(genres=True)
         # Filter dataframe by genre
-        filtered_df = track_df[
-            track_df['genre'].apply(lambda genres: any(genre_filter.lower() in genre.lower() for genre in genres))]
+        filtered_df = favorite_tracks[
+            favorite_tracks['genre'].apply(lambda genres: any(
+                genre_filter.lower() in genre.lower() for genre in genres))]
         if filtered_df.empty:
-            raise ValueError("No tracks found for the given genre filter.")
+            raise ValueError(f"No tracks found for {genre_filter} genre filter.")
 
-        # Get audio features for the filtered dataframe
-        filtered_df_af = self.get_audio_features(filtered_df)
-        filtered_af_array = convert_to_numpy_array(filtered_df_af)
-
-        # Calculate the mean of the audio features array
-        filtered_af_array_mean = np.mean(filtered_af_array, axis=0)
+        filtered_mean = self.get_audio_features_mean(filtered_df)
 
         # Search for tracks based on the genre filter
-        genre_string = f"genre:{genre_filter}"
-        queried_tracks = self.search_tracks(query=genre_string, limit=limit, market=market)
-        queried_tracks_df = Tracks.get_dataframe(queried_tracks)
+        queried_df = self.search_tracks(query=f"genre:{genre_filter}", limit=limit, market=market)
 
         # Get audio features for the queried tracks
-        queried_tracks_af = self.get_audio_features(queried_tracks)
-        queried_af_array = convert_to_numpy_array(queried_tracks_af)
+        queried_df_af = self.get_audio_features(queried_df)
+        queried_af_array = convert_to_numpy_array(queried_df_af)
 
         # Calculate the distances between the queried tracks' audio features
         # and the mean of the filtered tracks' audio features
-        distances = np.linalg.norm(queried_af_array - filtered_af_array_mean, axis=1)
+        distances = np.linalg.norm(queried_af_array - filtered_mean, axis=1)
 
         # Get the indices of the 5 tracks with the smallest distances
         closest_indices = np.argsort(distances)[:5]
 
-        results = queried_tracks_df.iloc[closest_indices]
-        return results[['name', 'artists', 'album', 'explicit', 'uri']].rename(columns={'name': 'name.alias(song)'})
+        results = queried_df.iloc[closest_indices]
+
+        return results[['name', 'artists', 'album', 'explicit', 'uri']].rename(columns={'name': 'song'})
 
 
 if __name__ == '__main__':

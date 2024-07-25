@@ -1,9 +1,8 @@
 """Utilities for spotify app."""
-import numpy as np
-
 from typing import List, Type, TypeVar
 from pydantic import BaseModel
 import pandas as pd
+import numpy as np
 
 T = TypeVar('T', bound='BaseModelWithDataFrame')
 
@@ -13,6 +12,14 @@ class BaseModelWithDataFrame(BaseModel):
 
     @staticmethod
     def get_dataframe(obj_list: List[BaseModel]) -> pd.DataFrame:
+        """Get a dataframe from a list of either Tracks or Features.
+
+        Args:
+            obj_list: list of Tracks or Features.
+
+        Returns: a dataframe.
+
+        """
         dict_list = [obj.dict() for obj in obj_list]
         return pd.DataFrame(dict_list)
 
@@ -51,7 +58,15 @@ class Tracks(BaseModelWithDataFrame):
     genres: list = None
 
     @staticmethod
-    def get_dataframe(tracklist: List['Tracks']) -> pd.DataFrame:
+    def get_dataframe(obj_list: List['Tracks']) -> pd.DataFrame:
+        """Get a dataframe from a list of either Tracks.
+
+        Args:
+            obj_list: list of Tracks.
+
+        Returns: a dataframe.
+
+        """
         dict_list = [
             {
                 'album': track.album["name"],
@@ -62,7 +77,7 @@ class Tracks(BaseModelWithDataFrame):
                 'popularity': track.popularity,
                 'id': track.id,
                 'genres': track.genres if track.genres else []
-            } for track in tracklist
+            } for track in obj_list
         ]
         return pd.DataFrame(dict_list)
 
@@ -79,4 +94,3 @@ def convert_to_numpy_array(audio_features: pd.DataFrame) -> np.ndarray:
     if not isinstance(audio_features, pd.DataFrame):
         raise ValueError("Input should be a pandas DataFrame")
     return audio_features.drop(columns='id', errors='ignore').values
-

@@ -199,8 +199,6 @@ class SpotifyApp:
         # Get audio features for the filtered dataframe
         filtered_df_af = self.get_audio_features(filtered_df)
         filtered_af_array = convert_to_numpy_array(filtered_df_af)
-        if filtered_af_array.size == 0:
-            raise ValueError("Conversion to numpy array resulted in an empty array.")
 
         # Calculate the mean of the audio features array
         filtered_af_array_mean = np.mean(filtered_af_array, axis=0)
@@ -213,8 +211,6 @@ class SpotifyApp:
         # Get audio features for the queried tracks
         queried_tracks_af = self.get_audio_features(queried_tracks)
         queried_af_array = convert_to_numpy_array(queried_tracks_af)
-        if queried_af_array.size == 0:
-            raise ValueError("Conversion to numpy array resulted in an empty array for queried tracks.")
 
         # Calculate the distances between the queried tracks' audio features
         # and the mean of the filtered tracks' audio features

@@ -20,7 +20,7 @@ This is a Python application that interacts with the Spotify API to manage user 
 ## Installation
 - Clone the repository:
   ```bash
-  git clone https://github.com/your-username/spotify-app.git
+  git clone https://github.com/jocokiss/SpotifyApp.git
   cd spotify-app
 - Create and activate a virtual environment:
   ```bash

@@ -10,7 +10,7 @@ import spotipy
 from dotenv import load_dotenv
 from spotipy.oauth2 import SpotifyOAuth, SpotifyClientCredentials
 
-from utilities import Tracks, Features, convert_to_numpy_array
+from app.utilities import Tracks, Features, convert_to_numpy_array
 
 pd.set_option('display.max_rows', None)
 # pd.set_option('display.max_columns', None)
@@ -221,5 +221,5 @@ class SpotifyApp:
 
 if __name__ == '__main__':
     spotify_app = SpotifyApp()
-    favorite_results = spotify_app.get_similar_results("rock")
+    favorite_results = spotify_app.get_similar_results("hip-hop")
     print(favorite_results)

@@ -21,7 +21,7 @@ This is a Python application that interacts with the Spotify API to manage user 
 - Clone the repository:
   ```bash
   git clone https://github.com/jocokiss/SpotifyApp.git
-  cd spotify-app
+  cd SpotifyApp
 - Create and activate a virtual environment:
   ```bash
   python -m venv venv

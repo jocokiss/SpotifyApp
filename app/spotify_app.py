@@ -29,6 +29,26 @@ class SpotifyApp:
         self.__user_conn: spotipy.Spotify = self.initialize_spotify_connection(user_auth=True)
         self.__client_conn: spotipy.Spotify = self.initialize_spotify_connection(user_auth=False)
 
+    @property
+    def user_conn(self):
+        """Get user connection."""
+        return self.__user_conn
+
+    @user_conn.setter
+    def user_conn(self, user_conn):
+        """Set user connection."""
+        self.__user_conn = user_conn
+
+    @property
+    def client_conn(self):
+        """Get client connection."""
+        return self.__client_conn
+
+    @client_conn.setter
+    def client_conn(self, client_conn):
+        """Set client connection."""
+        self.__client_conn = client_conn
+
     def initialize_spotify_connection(self, user_auth: bool = False) -> spotipy.Spotify:
         """
         Initialize the Spotify connection.
@@ -46,10 +66,9 @@ class SpotifyApp:
                 client_secret=self.__client_secret,
                 scope="user-library-read",
                 redirect_uri=self.__redirect_uri))
-        else:
-            client_credentials_manager = SpotifyClientCredentials(
-                client_id=self.__client_id, client_secret=self.__client_secret)
-            return spotipy.Spotify(client_credentials_manager=client_credentials_manager)
+        client_credentials_manager = SpotifyClientCredentials(
+            client_id=self.__client_id, client_secret=self.__client_secret)
+        return spotipy.Spotify(client_credentials_manager=client_credentials_manager)
 
     def get_user_playlist(self, genres: bool = False, max_iterations: int = 100) -> pd.DataFrame:
         """Get the user's playlist with a limit on the number of iterations to prevent infinite loops."""

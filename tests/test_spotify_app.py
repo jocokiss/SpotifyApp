@@ -1,3 +1,4 @@
+"""Tests for `spotify_app` package."""
 import unittest
 from unittest.mock import patch, MagicMock
 import pandas as pd
@@ -6,20 +7,33 @@ from app.spotify_app import SpotifyApp
 
 
 class TestSpotifyApp(unittest.TestCase):
+    """Tests for `spotify_app` package."""
 
-    @patch('app.spotify_app.SpotifyApp.initialize_spotify_connection')
-    def setUp(self, mock_initialize_spotify_connection):
-        # Mock the Spotify API connections
+    def setUp(self):
+        # Patch the initialize_spotify_connection method and start the patches
+        self.patcher_user_conn = patch('app.spotify_app.SpotifyApp.initialize_spotify_connection')
+        self.patcher_client_conn = patch('app.spotify_app.SpotifyApp.initialize_spotify_connection')
+
+        # Start the patches
+        mock_initialize_spotify_connection_user = self.patcher_user_conn.start()
+        mock_initialize_spotify_connection_client = self.patcher_client_conn.start()
+
+        # Create mock objects
         mock_user_conn = MagicMock()
         mock_client_conn = MagicMock()
-        mock_initialize_spotify_connection.side_effect = [mock_user_conn, mock_client_conn]
 
+        # Set the return values of the mocked methods
+        mock_initialize_spotify_connection_user.return_value = mock_user_conn
+        mock_initialize_spotify_connection_client.return_value = mock_client_conn
+
+        # Instantiate the SpotifyApp with the mocked connections
         self.spotify_app = SpotifyApp()
-        self.spotify_app.__user_conn = mock_user_conn
-        self.spotify_app.__client_conn = mock_client_conn
+        self.spotify_app.user_conn = mock_user_conn
+        self.spotify_app.client_conn = mock_client_conn
 
     @patch('app.spotify_app.Tracks.get_dataframe')
     def test_get_user_playlist(self, mock_get_dataframe):
+        """Test get_user_playlist."""
         # Setup mock data with all required fields
         mock_results = {
             'items': [{
@@ -35,7 +49,7 @@ class TestSpotifyApp(unittest.TestCase):
             }],
             'next': None
         }
-        self.spotify_app.__user_conn.current_user_saved_tracks.return_value = mock_results
+        self.spotify_app.user_conn.current_user_saved_tracks.return_value = mock_results
         mock_get_dataframe.return_value = pd.DataFrame([{
             'name': 'Song 1',
             'artists': ['Artist 1'],
@@ -50,12 +64,13 @@ class TestSpotifyApp(unittest.TestCase):
         result_df = self.spotify_app.get_user_playlist()
 
         # Assertions
-        self.spotify_app.__user_conn.current_user_saved_tracks.assert_called_once()
+        self.spotify_app.user_conn.current_user_saved_tracks.assert_called_once()
         mock_get_dataframe.assert_called_once()
         self.assertFalse(result_df.empty)
 
     @patch('app.spotify_app.Tracks.get_dataframe')
     def test_search_tracks(self, mock_get_dataframe):
+        """Test search_tracks."""
         # Setup mock data with all required fields
         mock_results = {
             'tracks': {
@@ -71,7 +86,7 @@ class TestSpotifyApp(unittest.TestCase):
                 'next': None
             }
         }
-        self.spotify_app.__client_conn.search.return_value = mock_results
+        self.spotify_app.client_conn.search.return_value = mock_results
         mock_get_dataframe.return_value = pd.DataFrame([{
             'name': 'Song 1',
             'artists': ['Artist 1'],
@@ -86,12 +101,13 @@ class TestSpotifyApp(unittest.TestCase):
         result_df = self.spotify_app.search_tracks("genre:pop")
 
         # Assertions
-        self.spotify_app.__client_conn.search.assert_called_once()
+        self.spotify_app.client_conn.search.assert_called_once()
         mock_get_dataframe.assert_called_once()
         self.assertFalse(result_df.empty)
 
     @patch('app.spotify_app.SpotifyApp.get_audio_features')
     def test_get_audio_features_mean(self, mock_get_audio_features):
+        """Test get_audio_features_mean."""
         # Setup mock data
         mock_df = pd.DataFrame(np.random.rand(5, 3), columns=['feature1', 'feature2', 'feature3'])
         mock_get_audio_features.return_value = mock_df
@@ -108,12 +124,13 @@ class TestSpotifyApp(unittest.TestCase):
     @patch('app.spotify_app.SpotifyApp.get_audio_features')
     @patch('app.spotify_app.SpotifyApp.search_tracks')
     @patch('app.spotify_app.convert_to_numpy_array')
-    def test_get_similar_results(self,
+    def test_get_similar_results(self,  # pylint: disable=too-many-arguments
                                  mock_convert_to_numpy_array,
                                  mock_search_tracks,
                                  mock_get_audio_features,
                                  mock_get_audio_features_mean,
                                  mock_get_user_playlist):
+        """Test get_similar_results."""
         # Setup mock data
         mock_playlist_df = pd.DataFrame([{
             'name': 'Song 1',

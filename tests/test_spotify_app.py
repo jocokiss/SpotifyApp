@@ -1,73 +1,157 @@
-"""Tests for `spotify_app` module."""
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 import pandas as pd
 import numpy as np
 from app.spotify_app import SpotifyApp
 
 
-# pylint: disable=too-many-instance-attributes
 class TestSpotifyApp(unittest.TestCase):
-    """Tests for `spotify_app` module."""
 
-    def setUp(self):
-        patch.dict('os.environ', {
-            'SPOTIPY_CLIENT_ID': 'test_client_id',
-            'SPOTIPY_CLIENT_SECRET': 'test_client_secret'
-        }).start()
-        self.addCleanup(patch.stopall)
-
-        self.spotify_oauth_patcher = patch('spotipy.SpotifyOAuth')
-        self.spotify_client_credentials_patcher = patch('spotipy.SpotifyClientCredentials')
-        self.spotify_patcher = patch('spotipy.Spotify')
-
-        self.mock_spotify = self.spotify_patcher.start()
-        self.mock_spotify_oauth = self.spotify_oauth_patcher.start()
-        self.mock_spotify_client_credentials = self.spotify_client_credentials_patcher.start()
-
-        self.addCleanup(self.spotify_patcher.stop)
-        self.addCleanup(self.spotify_oauth_patcher.stop)
-        self.addCleanup(self.spotify_client_credentials_patcher.stop)
+    @patch('app.spotify_app.SpotifyApp.initialize_spotify_connection')
+    def setUp(self, mock_initialize_spotify_connection):
+        # Mock the Spotify API connections
+        mock_user_conn = MagicMock()
+        mock_client_conn = MagicMock()
+        mock_initialize_spotify_connection.side_effect = [mock_user_conn, mock_client_conn]
 
         self.spotify_app = SpotifyApp()
+        self.spotify_app.__user_conn = mock_user_conn
+        self.spotify_app.__client_conn = mock_client_conn
 
-        self.mock_tracks = [
-            {'track': {
-                'id': '1',
-                'name': 'Track 1',
-                'artists': ['Artist 1'],
-                'album': 'Album 1',
-                'explicit': False,
-                'popularity': 50,
-                'uri': 'uri1'}},
-            {'track': {
-                'id': '2',
-                'name': 'Track 2',
-                'artists': ['Artist 2'],
-                'album': 'Album 2',
-                'explicit': True,
-                'popularity': 60,
-                'uri': 'uri2'}}
-        ]
+    @patch('app.spotify_app.Tracks.get_dataframe')
+    def test_get_user_playlist(self, mock_get_dataframe):
+        # Setup mock data with all required fields
+        mock_results = {
+            'items': [{
+                'track': {
+                    'name': 'Song 1',
+                    'artists': [{'name': 'Artist 1'}],
+                    'album': {'name': 'Album 1'},
+                    'explicit': False,
+                    'uri': 'spotify:track:1',
+                    'popularity': 80,
+                    'id': '1',
+                }
+            }],
+            'next': None
+        }
+        self.spotify_app.__user_conn.current_user_saved_tracks.return_value = mock_results
+        mock_get_dataframe.return_value = pd.DataFrame([{
+            'name': 'Song 1',
+            'artists': ['Artist 1'],
+            'album': 'Album 1',
+            'explicit': False,
+            'uri': 'spotify:track:1',
+            'popularity': 80,
+            'id': '1',
+        }])
 
-        self.mock_genre_df = pd.DataFrame({
-            'artist': ['artist 1', 'artist 2'],
-            'genre': [['genre1', 'genre2'], ['genre3']]
-        })
+        # Run the method
+        result_df = self.spotify_app.get_user_playlist()
 
-        self.mock_audio_features = [
-            {'id': '1', 'danceability': 0.5, 'energy': 0.8, 'key': 5},
-            {'id': '2', 'danceability': 0.7, 'energy': 0.6, 'key': 6}
-        ]
+        # Assertions
+        self.spotify_app.__user_conn.current_user_saved_tracks.assert_called_once()
+        mock_get_dataframe.assert_called_once()
+        self.assertFalse(result_df.empty)
+
+    @patch('app.spotify_app.Tracks.get_dataframe')
+    def test_search_tracks(self, mock_get_dataframe):
+        # Setup mock data with all required fields
+        mock_results = {
+            'tracks': {
+                'items': [{
+                    'name': 'Song 1',
+                    'artists': [{'name': 'Artist 1'}],
+                    'album': {'name': 'Album 1'},
+                    'explicit': False,
+                    'uri': 'spotify:track:1',
+                    'popularity': 80,
+                    'id': '1',
+                }],
+                'next': None
+            }
+        }
+        self.spotify_app.__client_conn.search.return_value = mock_results
+        mock_get_dataframe.return_value = pd.DataFrame([{
+            'name': 'Song 1',
+            'artists': ['Artist 1'],
+            'album': 'Album 1',
+            'explicit': False,
+            'uri': 'spotify:track:1',
+            'popularity': 80,
+            'id': '1',
+        }])
+
+        # Run the method
+        result_df = self.spotify_app.search_tracks("genre:pop")
+
+        # Assertions
+        self.spotify_app.__client_conn.search.assert_called_once()
+        mock_get_dataframe.assert_called_once()
+        self.assertFalse(result_df.empty)
 
     @patch('app.spotify_app.SpotifyApp.get_audio_features')
     def test_get_audio_features_mean(self, mock_get_audio_features):
-        """Test get_audio_features_mean."""
-        mock_df = pd.DataFrame(self.mock_tracks)
-        mock_get_audio_features.return_value = pd.DataFrame(self.mock_audio_features)
-        mean_result = self.spotify_app.get_audio_features_mean(mock_df)
-        self.assertIsInstance(mean_result, np.ndarray)
-        self.assertEqual(len(mean_result), 3)
+        # Setup mock data
+        mock_df = pd.DataFrame(np.random.rand(5, 3), columns=['feature1', 'feature2', 'feature3'])
+        mock_get_audio_features.return_value = mock_df
+
+        # Run the method
+        result_mean = self.spotify_app.get_audio_features_mean(mock_df)
+
+        # Assertions
+        mock_get_audio_features.assert_called_once()
+        self.assertEqual(result_mean.shape[0], 3)
+
+    @patch('app.spotify_app.SpotifyApp.get_user_playlist')
+    @patch('app.spotify_app.SpotifyApp.get_audio_features_mean')
+    @patch('app.spotify_app.SpotifyApp.get_audio_features')
+    @patch('app.spotify_app.SpotifyApp.search_tracks')
+    @patch('app.spotify_app.convert_to_numpy_array')
+    def test_get_similar_results(self,
+                                 mock_convert_to_numpy_array,
+                                 mock_search_tracks,
+                                 mock_get_audio_features,
+                                 mock_get_audio_features_mean,
+                                 mock_get_user_playlist):
+        # Setup mock data
+        mock_playlist_df = pd.DataFrame([{
+            'name': 'Song 1',
+            'artists': ['Artist 1'],
+            'genre': ['hip-hop']
+        }])
+        mock_queried_df = pd.DataFrame([{
+            'name': 'Song 2',
+            'artists': ['Artist 2'],
+            'album': 'Album 2',
+            'explicit': False,
+            'uri': 'spotify:track:2',
+            'id': '1',
+        }])
+        mock_audio_features = np.random.rand(1, 3)
+        mock_mean = np.random.rand(3)
+
+        mock_get_user_playlist.return_value = mock_playlist_df
+        mock_get_audio_features_mean.return_value = mock_mean
+        mock_search_tracks.return_value = mock_queried_df
+        mock_get_audio_features.return_value = pd.DataFrame(mock_audio_features)
+        mock_convert_to_numpy_array.side_effect = [mock_audio_features, mock_audio_features]
+
+        # Run the method
+        result_df = self.spotify_app.get_similar_results("hip-hop")
+
+        # Assertions
+        mock_get_user_playlist.assert_called_once()
+        mock_search_tracks.assert_called_once()
+        mock_get_audio_features.assert_called()
+        mock_convert_to_numpy_array.assert_called()
+        self.assertFalse(result_df.empty)
+        self.assertEqual(result_df.shape[0], 1)
+        self.assertIn('song', result_df.columns)
+        self.assertIn('artists', result_df.columns)
+        self.assertIn('album', result_df.columns)
+        self.assertIn('explicit', result_df.columns)
+        self.assertIn('uri', result_df.columns)
 
 
 if __name__ == '__main__':

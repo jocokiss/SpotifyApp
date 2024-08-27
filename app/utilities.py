@@ -94,3 +94,8 @@ def convert_to_numpy_array(audio_features: pd.DataFrame) -> np.ndarray:
     if not isinstance(audio_features, pd.DataFrame):
         raise ValueError("Input should be a pandas DataFrame")
     return audio_features.drop(columns='id', errors='ignore').values
+
+
+def strip_and_lower(string: str) -> str:
+    """Strip and lowercase a string."""
+    return string.strip().lower()

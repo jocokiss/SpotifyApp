@@ -10,7 +10,7 @@ import spotipy
 from dotenv import load_dotenv
 from spotipy.oauth2 import SpotifyOAuth, SpotifyClientCredentials
 
-from app.utilities import Tracks, Features, convert_to_numpy_array
+from app.utilities import Tracks, Features, convert_to_numpy_array, strip_and_lower
 
 pd.set_option('display.max_rows', None)
 # pd.set_option('display.max_columns', None)
@@ -24,31 +24,45 @@ class SpotifyApp:
         load_dotenv('.env')  # Load the environment variables from the .env file
         self.__client_id = os.getenv('spotipy_client_id')
         self.__client_secret = os.getenv('spotipy_client_secret')
+        self.__redirect_uri = os.getenv('redirect_uri')
 
-        self.__user_conn: spotipy.Spotify = self.__initialize_user_connection()
-        self.__client_conn: spotipy.Spotify = self.__initialize_client_connection()
+        self.__user_conn: spotipy.Spotify = self.initialize_spotify_connection(user_auth=True)
+        self.__client_conn: spotipy.Spotify = self.initialize_spotify_connection(user_auth=False)
 
-    def __initialize_user_connection(self) -> spotipy.Spotify:
-        return spotipy.Spotify(auth_manager=SpotifyOAuth(
-            client_id=self.__client_id,
-            client_secret=self.__client_secret,
-            scope="user-library-read",
-            redirect_uri="https://ca2f-89-135-32-37.ngrok-free.app"))
+    def initialize_spotify_connection(self, user_auth: bool = False) -> spotipy.Spotify:
+        """
+        Initialize the Spotify connection.
 
-    def __initialize_client_connection(self) -> spotipy.Spotify:
-        """Initialize the Spotify client connection."""
-        client_credentials_manager = SpotifyClientCredentials(
-            client_id=self.__client_id, client_secret=self.__client_secret)
+        Parameters:
+        - user_auth (bool): If True, use user authentication (SpotifyOAuth).
+                            If False, use client credentials (SpotifyClientCredentials).
 
-        return spotipy.Spotify(client_credentials_manager=client_credentials_manager)
+        Returns:
+        - spotipy.Spotify: An authenticated Spotify client.
+        """
+        if user_auth:
+            return spotipy.Spotify(auth_manager=SpotifyOAuth(
+                client_id=self.__client_id,
+                client_secret=self.__client_secret,
+                scope="user-library-read",
+                redirect_uri=self.__redirect_uri))
+        else:
+            client_credentials_manager = SpotifyClientCredentials(
+                client_id=self.__client_id, client_secret=self.__client_secret)
+            return spotipy.Spotify(client_credentials_manager=client_credentials_manager)
 
-    def get_user_playlist(self, genres: bool = False) -> pd.DataFrame:
-        """Get the user's playlist."""
+    def get_user_playlist(self, genres: bool = False, max_iterations: int = 100) -> pd.DataFrame:
+        """Get the user's playlist with a limit on the number of iterations to prevent infinite loops."""
+
         results = self.__user_conn.current_user_saved_tracks()
         tracks = results['items']
-        while results['next']:
+        iterations = 0
+
+        while results['next'] and iterations < max_iterations:
             results = self.__user_conn.next(results)
             tracks.extend(results["items"])
+            iterations += 1
+
         result_df = Tracks.get_dataframe([Tracks(**track['track']) for track in tracks])
         return self.update_tracks_with_genres(result_df) if genres else result_df
 
@@ -62,18 +76,16 @@ class SpotifyApp:
 
         Returns: a dataframe of unique tracks found.
 
+        Note: The API limits the maximum number of tracks that can be queried this way to 100.
+                There’s no need to account for an infinite loop.
+
         """
         results = self.__client_conn.search(q=query, type="track", limit=limit, market=market)
         raw_tracks = results['tracks']['items']
 
         while results['tracks']['next'] and len(raw_tracks) < 200:
             results = self.__client_conn.next(results['tracks'])
-            search_results = results["tracks"]["items"]
-
-            if not search_results:
-                print("No additional tracks found in this page.")
-                break
-            raw_tracks.extend(search_results)
+            raw_tracks.extend(results["tracks"]["items"])
 
         track_df = Tracks.get_dataframe([Tracks(**track) for track in raw_tracks])
         return track_df.drop_duplicates(subset='id')
@@ -87,14 +99,14 @@ class SpotifyApp:
         Returns: a DataFrame with genres per artist.
 
         """
-        artists = {artist.strip().lower() for artist_list in dataframe['artists'] for artist in artist_list}
+        artists = {strip_and_lower(artist) for artist_list in dataframe['artists'] for artist in artist_list}
         df_dict = {}
 
         for artist in artists:
             query = f"artist:{artist}"
             search_results = self.__client_conn.search(q=query, type="artist", limit=50)["artists"]["items"]
             for result in search_results:
-                if result['name'].strip().lower() == artist:
+                if strip_and_lower(result['name']) == artist:
                     df_dict[artist] = result["genres"]
                     break
         normalized_data = [(artist, genre) for artist, genres in df_dict.items() for genre in genres]
